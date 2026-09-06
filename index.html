@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- ================================================================
+         🎨 PERSONALIZAÇÃO POR CLIENTE — troque o nome do negócio nas
+         linhas abaixo (theme-color deve ser igual a --header-bg do CSS).
+         ================================================================ -->
+    <meta name="theme-color" content="#E7E7E7">
+    <meta name="description" content="Gerador Profissional de Carnês e Recibos">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Carnês">
+    <title>Gerador de Carnês</title>
+    <!-- ================================================================ -->
+
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" href="./icon-192.png">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <style>
+        :root {
+            /* ============================================================
+               🎨 PERSONALIZAÇÃO POR CLIENTE — só mexa aqui pra rebrandear.
+               Troque --primary pela cor da marca do cliente. As variáveis
+               --primary-dark e --primary-soft devem ficar mais escura e
+               mais clara (respectivamente) que --primary. Use o
+               icon-generator.html com essa MESMA cor pra gerar os ícones.
+               ============================================================ */
+            --bg: #F5F3EE;
+            --surface: #FFFFFF;
+            --surface-muted: #EFEBE1;
+            --ink: #101010;
+            --ink-soft: #5B5B5B;
+            --primary: #1E6B3D;        /* <- cor principal da marca do cliente */
+            --primary-dark: #123F24;   /* <- versão mais escura de --primary */
+            --primary-soft: #E3EFE4;   /* <- versão bem clara de --primary (fundo suave) */
+            --header-bg: #E7E7E7;
+            /* ============================================================ */
+            --gold: #93701E;
+            --gold-soft: #F4ECD8;
+            --danger: #A6392C;
+            --danger-soft: #F5E4E1;
+            --line: #DAD4C6;
+            --line-strong: #B9B2A0;
+            --radius-card: 18px;
+            --radius-field: 11px;
+            --radius-btn: 13px;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            margin: 0; padding: 0;
+            padding-bottom: calc(158px + env(safe-area-inset-bottom));
+            color: var(--ink);
+            -webkit-font-smoothing: antialiased;
+            overscroll-behavior-y: contain;
+        }
+
+        /* ===================== HEADER ===================== */
+        header {
+            background: var(--header-bg);
+            color: var(--ink);
+            padding: 16px 18px;
+            padding-top: calc(16px + env(safe-area-inset-top));
+            display: flex; align-items: center; gap: 10px;
+            border-bottom: 1px solid var(--line-strong);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            position: sticky; top: 0; z-index: 100;
+        }
+        header .logo-mark { flex-shrink: 0; color: var(--primary); }
+        header .header-text { display: flex; flex-direction: column; line-height: 1.25; }
+        header .header-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+        header .header-sub { font-size: 12px; font-weight: 400; color: var(--ink-soft); }
+
+        /* ===================== BANNERS ===================== */
+        #install-banner { display: none; background: var(--primary-soft); color: var(--primary-dark); padding: 10px 14px; text-align: center; font-size: 13px; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; position: sticky; top: 0; z-index: 99; border-bottom: 1px solid var(--line-strong); }
+        #install-banner button { border: none; border-radius: 8px; font-weight: 700; font-size: 13px; padding: 7px 14px; cursor: pointer; touch-action: manipulation; }
+        #btn-instalar { background-color: var(--primary); color: #fff; }
+        #btn-fechar-banner { background: transparent; color: var(--primary-dark); font-size: 15px; padding: 4px 8px; }
+
+        #offline-banner { display: none; background: var(--gold-soft); color: var(--gold); padding: 8px 14px; text-align: center; font-size: 12.5px; font-weight: 700; position: sticky; top: 0; z-index: 98; }
+
+        /* ===================== CONTAINER / TICKET ===================== */
+        .recibo-container { width: 100%; max-width: 820px; margin: 18px auto; padding: 0 12px; overflow: hidden; }
+        .recibo-wrapper { margin-bottom: 22px; }
+
+        .recibo {
+            display: flex; flex-wrap: wrap;
+            background-color: var(--surface);
+            border-radius: var(--radius-card);
+            border: 1px solid var(--line);
+            box-shadow: 0 1px 2px rgba(33,38,31,0.04), 0 6px 16px rgba(33,38,31,0.06);
+            position: relative;
+            min-height: 230px;
+            overflow: visible;
+            width: 820px;
+        }
+
+        .lado { width: 50%; padding: 20px; display: flex; flex-direction: column; justify-content: center; position: relative; }
+        .lado:first-child { border-right: 1px dashed var(--line-strong); }
+        .lado:last-child { background-color: #FAF9F5; border-radius: 0 var(--radius-card) var(--radius-card) 0; }
+        .lado:first-child { border-radius: var(--radius-card) 0 0 var(--radius-card); }
+
+        /* Furos de perfuração — desktop/exportação: linha vertical, furos em cima/embaixo */
+        .lado:first-child::before, .lado:first-child::after {
+            content: ""; position: absolute; left: 100%; transform: translateX(-50%);
+            width: 16px; height: 16px; border-radius: 50%;
+            background: var(--bg);
+            box-shadow: inset 0 0 0 1px var(--line-strong);
+            z-index: 2;
+        }
+        .lado:first-child::before { top: -8px; }
+        .lado:first-child::after { bottom: -8px; }
+
+        @media (max-width: 650px) {
+            .recibo { flex-direction: column; min-height: auto; width: 100%; }
+            .lado { width: 100%; padding: 18px; }
+            .lado:first-child { border-right: none; border-bottom: 1px dashed var(--line-strong); border-radius: var(--radius-card) var(--radius-card) 0 0; }
+            .lado:last-child { border-radius: 0 0 var(--radius-card) var(--radius-card); }
+            /* Furos: reposiciona para a linha horizontal, esquerda/direita */
+            .lado:first-child::before, .lado:first-child::after { top: 100%; left: auto; transform: translateY(-50%); }
+            .lado:first-child::before { left: -8px; }
+            .lado:first-child::after { left: auto; right: -8px; }
+        }
+
+        /* ===================== CAMPOS ===================== */
+        .campo { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+        .campo label { font-size: 12px; font-weight: 600; color: var(--ink-soft); padding-left: 2px; }
+        .campo-par { display: flex; gap: 10px; }
+        .campo-par .campo { flex: 1; min-width: 0; }
+
+        .linha {
+            font-family: "SF Mono", "Roboto Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+            font-size: 16px; font-weight: 600;
+            padding: 10px 12px;
+            color: var(--ink);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-field);
+            width: 100%;
+            touch-action: manipulation;
+            transition: border-color .12s, box-shadow .12s;
+        }
+        .linha:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .linha::placeholder { color: var(--line-strong); font-weight: 500; }
+
+        /* Lado direito (canhoto da empresa): campos somente-leitura, com visual "preenchido automaticamente" */
+        .lado:last-child .linha { background: var(--surface-muted); border-style: dashed; color: var(--ink-soft); cursor: default; }
+
+        .titulo-recibo {
+            display: inline-flex; align-self: flex-start;
+            font-weight: 700; font-size: 13px;
+            margin-bottom: 14px;
+            background-color: var(--primary-soft);
+            color: var(--primary-dark);
+            padding: 6px 14px;
+            border-radius: 999px;
+        }
+
+        .linha-text { display: block; min-height: 20px; border-bottom: 1px solid #000; font-family: "Courier New", Courier, monospace; font-size: 15px; font-weight: 700; padding: 0 5px 3px 5px; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .label-text-pdf { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 1px; }
+
+        .espaco-reservado { margin-top: 6px; width: 100%; background: transparent; min-height: 8px; }
+
+        /* ===================== BARRA INFERIOR ===================== */
+        .botoes-container {
+            position: fixed; bottom: 0; left: 0; width: 100%;
+            background: var(--surface);
+            padding: 14px 16px;
+            padding-bottom: calc(14px + env(safe-area-inset-bottom));
+            padding-left: calc(16px + env(safe-area-inset-left));
+            padding-right: calc(16px + env(safe-area-inset-right));
+            box-shadow: 0 -6px 24px rgba(33,38,31,0.10);
+            display: flex; flex-direction: column; gap: 10px;
+            z-index: 900;
+            border-top-left-radius: 20px; border-top-right-radius: 20px;
+            border-top: 1px solid var(--line);
+        }
+        .controles-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .config-group { display: flex; align-items: center; gap: 8px; background: var(--bg); padding: 8px 14px; border-radius: 999px; font-size: 13px; flex: 1; justify-content: center; border: 1px solid var(--line); }
+        .config-group label { color: var(--ink-soft); font-weight: 600; }
+        .input-qtd { width: 42px; border: none; background: transparent; text-align: center; font-weight: 700; font-size: 15px; color: var(--primary-dark); touch-action: manipulation; }
+
+        .btn-row-secondary { display: flex; gap: 8px; width: 100%; }
+
+        .botao-tonal, .botao-primario-full, .botao-linha {
+            border: none; cursor: pointer; touch-action: manipulation;
+            -webkit-user-select: none; user-select: none;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            transition: transform .08s, background-color .12s;
+        }
+        .botao-tonal:active, .botao-primario-full:active, .botao-linha:active { transform: scale(0.97); }
+
+        .botao-tonal {
+            flex: 1; min-height: 46px;
+            background: var(--primary-soft); color: var(--primary-dark);
+            font-size: 14px; font-weight: 700;
+            border-radius: var(--radius-btn);
+        }
+        .botao-tonal--icon { flex: 0 0 46px; }
+
+        .botao-primario-full {
+            width: 100%; height: 52px;
+            background: var(--primary); color: white;
+            font-size: 15px; font-weight: 700;
+            border-radius: var(--radius-btn);
+            box-shadow: 0 4px 12px rgba(30,107,61,0.28);
+        }
+
+        #loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(245,243,238,0.97); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
+        .spinner { width: 44px; height: 44px; border: 4px solid var(--line); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loading p.loading-title { margin-top: 16px; font-weight: 700; color: var(--ink); }
+        #loading p.loading-hint { font-size: 12px; color: var(--ink-soft); }
+        #loading-progress { margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--primary); min-height: 18px; }
+
+        @media (min-width: 768px) {
+            .botoes-container { position: static; width: 700px; margin: 24px auto; border-radius: 16px; padding: 22px; border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(33,38,31,0.06); }
+        }
+
+        /* ===================== SHEET (Mais opções) ===================== */
+        #config-modal { display: none; position: fixed; inset: 0; background: rgba(20,24,18,0.45); align-items: flex-end; justify-content: center; z-index: 3000; }
+        #config-modal .sheet {
+            background: var(--surface); width: 100%; max-width: 480px;
+            border-radius: 20px 20px 0 0;
+            padding: 10px 20px calc(20px + env(safe-area-inset-bottom)) 20px;
+            max-height: 82vh; overflow-y: auto;
+            transform: translateY(16px); opacity: 0;
+            animation: sheet-in .18s ease-out forwards;
+        }
+        @keyframes sheet-in { to { transform: translateY(0); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { #config-modal .sheet { animation: none; transform: none; opacity: 1; } }
+        @media (min-width: 640px) {
+            #config-modal { align-items: center; }
+            #config-modal .sheet { border-radius: 18px; max-height: 85vh; }
+        }
+        .sheet-handle { width: 36px; height: 4px; background: var(--line-strong); border-radius: 999px; margin: 6px auto 14px; }
+        .sheet h3 { margin: 0 0 4px 0; font-size: 17px; }
+        .sheet-label { font-size: 12px; font-weight: 700; color: var(--ink-soft); margin: 14px 0 8px; }
+        .sheet-option { display: flex; align-items: center; gap: 10px; padding: 10px 4px; font-size: 14px; cursor: pointer; }
+        .sheet-option input { width: 18px; height: 18px; accent-color: var(--primary); }
+        .sheet-divider { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+
+        .botao-linha {
+            width: 100%; text-align: left; justify-content: flex-start;
+            background: transparent; padding: 12px 8px; border-radius: 10px;
+            font-size: 14px; font-weight: 600; color: var(--ink);
+        }
+        .botao-linha svg { flex-shrink: 0; }
+        .botao-linha--warn { color: var(--gold); }
+        .botao-linha--danger { color: var(--danger); }
+        .botao-linha:active { background: var(--bg); }
+
+        .sheet-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+        .sheet-actions button { border: none; border-radius: 10px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; touch-action: manipulation; }
+        #config-cancel { background: var(--bg); color: var(--ink-soft); }
+        #config-save { background: var(--primary); color: white; }
+    </style>
+</head>
+<body>
+    <!-- 🎨 PERSONALIZAÇÃO: nome do negócio e frase abaixo dele -->
+    <header>
+        <svg class="logo-mark" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 2.5h12a1 1 0 0 1 1 1v16.2l-1.8-1.2-1.7 1.2-1.7-1.2-1.8 1.2-1.7-1.2-1.8 1.2-1.7-1.2L5 19.7V3.5a1 1 0 0 1 1-1z"/>
+            <path d="M8.2 8h7.6M8.2 10.8h7.6M8.2 13.6h4.5" stroke-width="1.4"/>
+        </svg>
+        <div class="header-text">
+            <span class="header-title">Gerador de Carnês</span>
+            <span class="header-sub">Recibos parcelados</span>
+        </div>
+    </header>
+
+    <div id="offline-banner">Sem conexão — funcionando no modo offline</div>
+
+    <div id="install-banner">
+        Instale este app na tela inicial para usar offline
+        <button id="btn-instalar">Instalar</button>
+        <button id="btn-fechar-banner" aria-label="Fechar">✕</button>
+    </div>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <p class="loading-title">Gerando arquivo...</p>
+        <p class="loading-hint">Isso pode levar alguns segundos</p>
+        <p id="loading-progress"></p>
+    </div>
+
+    <div class="recibo-container" id="recibo-container"></div>
+
+    <div class="botoes-container">
+        <div class="controles-row">
+            <div class="config-group">
+                <label>Qtd</label>
+                <input type="text" inputmode="numeric" pattern="[0-9]*" id="quantidade-recibos" class="input-qtd" value="1" />
+            </div>
+            <div class="config-group">
+                <label>Total</label>
+                <select id="total-parcelas" class="input-qtd" style="text-align:center; width:56px;">
+                    <option value="12">12</option>
+                    <option value="24">24</option>
+                    <option value="48">48</option>
+                    <option value="60" selected>60</option>
+                    <option value="80">80</option>
+                    <option value="90">90</option>
+                    <option value="100">100</option>
+                    <option value="120">120</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="btn-row-secondary">
+            <button class="botao-tonal" id="gerar-mais">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                Gerar
+            </button>
+            <button class="botao-tonal botao-tonal--icon" id="btn-config" aria-label="Mais opções">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+            </button>
+        </div>
+
+        <button class="botao-primario-full" id="gerar-pdf">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg>
+            Baixar / Exportar
+        </button>
+    </div>
+
+    <template id="recibo-template">
+        <div class="recibo-wrapper">
+            <div class="recibo" id="recibo-ID">
+                <div class="lado">
+                    <div class="campo"><label>Nome</label><input class="linha" id="nome-ID" type="text" autocomplete="off" autocapitalize="words" /></div>
+                    <div class="campo-par">
+                        <div class="campo"><label>RG</label><input class="linha input-rg" id="rg-ID" type="text" inputmode="numeric" autocomplete="off" maxlength="18" placeholder="RG..." /></div>
+                        <div class="campo"><label>CPF</label><input class="linha input-cpf" id="cpf-ID" type="text" inputmode="numeric" autocomplete="off" maxlength="14" placeholder="000.000.000-00" /></div>
+                    </div>
+                    <div class="campo-par">
+                        <div class="campo"><label>Vencimento</label><input class="linha" id="venc-ID" placeholder="DD/MM/AAAA" type="text" inputmode="numeric" autocomplete="off" maxlength="10" /></div>
+                        <div class="campo"><label>Lote</label><input class="linha" id="lote-ID" type="text" autocomplete="off" /></div>
+                    </div>
+                    <div class="campo-par">
+                        <div class="campo"><label>Parcela</label><input class="linha" id="parcela-ID" type="text" autocomplete="off" /></div>
+                        <div class="campo"><label>Valor</label><input class="linha input-valor" id="valor-ID" type="text" inputmode="numeric" autocomplete="off" placeholder="R$ 0,00" /></div>
+                    </div>
+                </div>
+
+                <div class="lado">
+                    <div class="titulo-recibo" id="titulo-recibo-ID">Recibo Nº ID</div>
+                    <div class="campo"><label>Nome</label><input class="linha" id="nome-lado2-ID" type="text" readonly tabindex="-1" /></div>
+                    <div class="campo"><label>Lote</label><input class="linha" id="lote-lado2-ID" type="text" readonly tabindex="-1" /></div>
+                    <div class="campo"><label>Nº Parcela</label><input class="linha" id="parcela-lado2-ID" type="text" readonly tabindex="-1" /></div>
+                    <div class="campo"><label>Valor</label><input class="linha" id="valor-lado2-ID" type="text" readonly tabindex="-1" /></div>
+
+                    <div class="espaco-reservado"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <div id="config-modal">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <h3>Opções</h3>
+
+        <p class="sheet-label">Formato de exportação</p>
+        <label class="sheet-option"><input type="radio" name="downloadMode" value="pdf" checked> Baixar como PDF</label>
+        <label class="sheet-option"><input type="radio" name="downloadMode" value="pngs"> Baixar como PNGs</label>
+        <label class="sheet-option"><input type="radio" name="downloadMode" value="zip"> Baixar ZIP (PNG)</label>
+        <label class="sheet-option"><input type="radio" name="downloadMode" value="both"> PDF + ZIP (PNG)</label>
+
+        <hr class="sheet-divider" />
+
+        <button class="botao-linha botao-linha--warn" id="limpar-base">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 1 2.6 6.4"/><path d="M3 21v-6h6"/></svg>
+            Limpar campos do recibo base
+        </button>
+        <button class="botao-linha botao-linha--danger" id="voltar">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>
+            Remover último recibo
+        </button>
+
+        <div class="sheet-actions">
+          <button id="config-cancel">Cancelar</button>
+          <button id="config-save">Salvar</button>
+        </div>
+      </div>
+    </div>
+
+<script>
+    let totalParcelas = 60;
+    const RECIBO_BASE_ID = 25;
+    const FORMATO_DATA = "DD/MM/YYYY";
+    const CONFIG_KEY = 'recibo_download_config_v2';
+    const UI_CONFIG_KEY = 'recibo_ui_config_v1';
+
+    function showModal(msg) { alert(msg); }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        criarRecibo(RECIBO_BASE_ID);
+        loadData();
+        loadUIConfig();
+        atualizarCalculos();
+
+        document.getElementById('gerar-mais').addEventListener('click', gerarMaisRecibos);
+        document.getElementById('voltar').addEventListener('click', removerUltimoRecibo);
+        document.getElementById('limpar-base').addEventListener('click', limparDadosBase);
+        document.getElementById('gerar-pdf').addEventListener('click', gerarPDF);
+        document.getElementById('total-parcelas').addEventListener('change', (e) => {
+            totalParcelas = parseInt(e.target.value, 10);
+            atualizarCalculos();
+            saveUIConfig();
+        });
+        document.getElementById('quantidade-recibos').addEventListener('change', saveUIConfig);
+        document.getElementById('btn-config').addEventListener('click', openConfigModal);
+        document.getElementById('config-cancel').addEventListener('click', closeConfigModal);
+        document.getElementById('config-save').addEventListener('click', saveConfigModal);
+
+        setupInstallPrompt();
+        setupOfflineBanner();
+        registerServiceWorker();
+        setupScrollOnFocus();
+    });
+
+    // ===================== MELHORIAS PARA ANDROID =====================
+
+    function setupScrollOnFocus() {
+        document.addEventListener('focusin', (e) => {
+            if (e.target.matches('input.linha') || e.target.matches('.input-qtd')) {
+                setTimeout(() => {
+                    e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }, 300);
+            }
+        });
+    }
+
+    function registerServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .catch((err) => console.warn('[SW] Falha ao registrar:', err));
+            });
+        }
+    }
+
+    function setupInstallPrompt() {
+        let deferredPrompt = null;
+        const banner = document.getElementById('install-banner');
+        const btnInstalar = document.getElementById('btn-instalar');
+        const btnFechar = document.getElementById('btn-fechar-banner');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            if (!localStorage.getItem('installBannerDismissed')) {
+                banner.style.display = 'flex';
+            }
+        });
+
+        btnInstalar.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            banner.style.display = 'none';
+        });
+
+        btnFechar.addEventListener('click', () => {
+            banner.style.display = 'none';
+            localStorage.setItem('installBannerDismissed', '1');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            banner.style.display = 'none';
+        });
+    }
+
+    function setupOfflineBanner() {
+        const banner = document.getElementById('offline-banner');
+        const atualizar = () => { banner.style.display = navigator.onLine ? 'none' : 'block'; };
+        window.addEventListener('online', atualizar);
+        window.addEventListener('offline', atualizar);
+        atualizar();
+    }
+
+    function saveUIConfig() {
+        try {
+            localStorage.setItem(UI_CONFIG_KEY, JSON.stringify({
+                qtd: document.getElementById('quantidade-recibos').value,
+                totalParcelas: document.getElementById('total-parcelas').value
+            }));
+        } catch (e) { console.warn('Não foi possível salvar config de UI', e); }
+    }
+
+    function loadUIConfig() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(UI_CONFIG_KEY) || 'null');
+            if (!saved) return;
+            if (saved.qtd) document.getElementById('quantidade-recibos').value = saved.qtd;
+            if (saved.totalParcelas) {
+                document.getElementById('total-parcelas').value = saved.totalParcelas;
+                totalParcelas = parseInt(saved.totalParcelas, 10) || totalParcelas;
+            }
+        } catch (e) { console.warn('Não foi possível carregar config de UI', e); }
+    }
+
+    // ===================== LÓGICA ORIGINAL DO APP =====================
+
+    function aplicarMascaraCPF(v) { v = v.replace(/\D/g, ""); v = v.slice(0, 11); v = v.replace(/(\d{3})(\d)/, "$1.$2"); v = v.replace(/(\d{3})(\d)/, "$1.$2"); v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2"); return v; }
+
+    function aplicarMascaraRG(v) {
+        v = v.replace(/\D/g, "");
+        v = v.slice(0, 14);
+
+        if (v.length > 1) {
+            const lastDigit = v.slice(-1);
+            let mainPart = v.slice(0, -1);
+            mainPart = mainPart.replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1.");
+            return mainPart + "-" + lastDigit;
+        }
+        return v;
+    }
+
+    function aplicarMascaraMoeda(v) { v = v.replace(/\D/g, ""); if (!v) return ""; const num = (parseInt(v, 10) / 100).toFixed(2); let parts = num.split("."); parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, "."); return "R$ " + parts.join(","); }
+    function aplicarMascaraData(v) { v = v.replace(/\D/g, ""); v = v.slice(0, 8); if (v.length > 4) return v.replace(/(\d{2})(\d{2})(\d{0,4})/, "$1/$2/$3"); if (v.length > 2) return v.replace(/(\d{2})(\d{0,2})/, "$1/$2"); return v; }
+
+    function configurarMascaras(recibo, id) {
+        const cpfInput = recibo.querySelector(`#cpf-${id}`); if (cpfInput) cpfInput.addEventListener('input', e => { e.target.value = aplicarMascaraCPF(e.target.value); if (id === RECIBO_BASE_ID) saveData(); });
+
+        const rgInput = recibo.querySelector(`#rg-${id}`);
+        if (rgInput) rgInput.addEventListener('input', e => {
+            e.target.value = aplicarMascaraRG(e.target.value);
+            if (id === RECIBO_BASE_ID) saveData();
+        });
+
+        const valorInput = recibo.querySelector(`#valor-${id}`); if (valorInput) valorInput.addEventListener('input', e => {
+            e.target.value = aplicarMascaraMoeda(e.target.value);
+            const dest = recibo.querySelector(`#valor-lado2-${id}`);
+            if (dest) dest.value = e.target.value;
+            if (id === RECIBO_BASE_ID) saveData();
+        });
+        const vencInput = recibo.querySelector(`#venc-${id}`); if (vencInput) vencInput.addEventListener('input', e => { e.target.value = aplicarMascaraData(e.target.value); if (id === RECIBO_BASE_ID) saveData(); });
+    }
+
+    function criarRecibo(id) {
+        const template = document.getElementById('recibo-template');
+        const container = document.getElementById('recibo-container');
+        const clone = template.content.cloneNode(true);
+        const wrapper = clone.querySelector('.recibo-wrapper');
+        wrapper.innerHTML = wrapper.innerHTML.replace(/-ID/g, `-${id}`).replace(/ ID/g, ` ${id}`);
+        const reciboEl = wrapper.querySelector('.recibo');
+        reciboEl.id = `recibo-${id}`;
+        container.appendChild(wrapper);
+        adicionarEventosAoRecibo(reciboEl, id);
+        return reciboEl;
+    }
+
+    function adicionarEventosAoRecibo(recibo, id) {
+        ['nome', 'lote', 'valor', 'parcela', 'cpf', 'rg'].forEach(campo => {
+            const esq = recibo.querySelector(`#${campo}-${id}`); const dir = recibo.querySelector(`#${campo}-lado2-${id}`);
+            if (esq && dir) { esq.addEventListener('input', () => { dir.value = esq.value; if (id === RECIBO_BASE_ID) saveData(); }); }
+        });
+        configurarMascaras(recibo, id);
+        const parcelaInput = recibo.querySelector(`#parcela-${id}`);
+        if (parcelaInput) parcelaInput.addEventListener('input', () => {
+            const val = parcelaInput.value.split('/')[0].trim();
+            const titulo = recibo.querySelector(`#titulo-recibo-${id}`);
+            if (titulo) titulo.textContent = `Recibo Nº ${val}`;
+            if (id === RECIBO_BASE_ID) { atualizarCalculos(); saveData(); }
+        });
+        if (id === RECIBO_BASE_ID) { const venc = recibo.querySelector(`#venc-${id}`); if (venc) venc.addEventListener('input', saveData); }
+    }
+
+    function getParcelaBase() {
+        const input = document.getElementById(`parcela-${RECIBO_BASE_ID}`);
+        if (!input) return 1;
+        const valor = input.value.split('/')[0].trim();
+        return parseInt(valor, 10) || 1;
+    }
+
+    function somarMesData(dataStr, meses, diaFixo) {
+        let m = moment(dataStr, FORMATO_DATA, true);
+        if (!m.isValid()) m = moment();
+        m.add(meses, 'months');
+        if (diaFixo <= m.daysInMonth()) m.date(diaFixo);
+        else m.date(m.daysInMonth());
+        return m.format(FORMATO_DATA);
+    }
+
+    function gerarMaisRecibos() {
+        const qtd = parseInt(document.getElementById('quantidade-recibos').value, 10) || 1;
+        const recibos = document.querySelectorAll('.recibo');
+        const ultimoRecibo = recibos[recibos.length - 1];
+        const ultimoId = parseInt(ultimoRecibo.id.split('-')[1], 10);
+        const ultimaDataEl = ultimoRecibo.querySelector(`[id^="venc-"]`);
+        const ultimaData = ultimaDataEl ? ultimaDataEl.value : document.getElementById(`venc-${RECIBO_BASE_ID}`).value;
+        const dataBaseStr = document.getElementById(`venc-${RECIBO_BASE_ID}`).value;
+        const diaBase = parseInt((dataBaseStr || "10").split('/')[0], 10) || 10;
+        let dataCursor = ultimaData || moment().format(FORMATO_DATA);
+
+        for (let i = 1; i <= qtd; i++) {
+            const novoId = ultimoId + i;
+            const novoRecibo = criarRecibo(novoId);
+            ['nome', 'rg', 'cpf', 'lote', 'valor'].forEach(campo => {
+                const valorBase = document.getElementById(`${campo}-${RECIBO_BASE_ID}`).value || "";
+                const inpEsq = novoRecibo.querySelector(`#${campo}-${novoId}`);
+                const inpDir = novoRecibo.querySelector(`#${campo}-lado2-${novoId}`);
+                if (inpEsq) inpEsq.value = valorBase;
+                if (inpDir) inpDir.value = valorBase;
+            });
+            const novaData = somarMesData(dataCursor, 1, diaBase);
+            const vencEl = novoRecibo.querySelector(`#venc-${novoId}`);
+            if (vencEl) vencEl.value = novaData;
+            dataCursor = novaData;
+        }
+        atualizarCalculos();
+        saveUIConfig();
+        setTimeout(() => { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }, 120);
+    }
+
+    function removerUltimoRecibo() {
+        const wrappers = document.querySelectorAll('.recibo-wrapper');
+        if (wrappers.length > 1) { wrappers[wrappers.length - 1].remove(); atualizarCalculos(); closeConfigModal(); }
+        else { showModal("O recibo base não pode ser removido."); }
+    }
+
+    function limparDadosBase() {
+        if(!confirm("Tem certeza que deseja limpar todos os campos do Recibo Base?")) return;
+        const campos = ['nome', 'rg', 'cpf', 'venc', 'lote', 'parcela', 'valor'];
+        campos.forEach(campo => {
+            const elEsq = document.getElementById(`${campo}-${RECIBO_BASE_ID}`);
+            const elDir = document.getElementById(`${campo}-lado2-${RECIBO_BASE_ID}`);
+            if(elEsq) elEsq.value = '';
+            if(elDir) elDir.value = '';
+        });
+        localStorage.removeItem('reciboData_vFinal_Opt');
+        atualizarCalculos();
+        closeConfigModal();
+    }
+
+    function atualizarCalculos() {
+        const inicio = getParcelaBase();
+        document.querySelectorAll('.recibo').forEach((rec, index) => {
+            const numeroAtual = inicio + index;
+            const textoParcela = `${numeroAtual}/${totalParcelas}`;
+            const id = rec.id.split('-')[1];
+            const inputEsq = rec.querySelector(`#parcela-${id}`);
+            if (document.activeElement !== inputEsq && inputEsq) inputEsq.value = textoParcela;
+            const inputDir = rec.querySelector(`#parcela-lado2-${id}`);
+            if (inputDir) inputDir.value = textoParcela;
+            const titulo = rec.querySelector(`#titulo-recibo-${id}`);
+            if (titulo) titulo.textContent = `Recibo Nº ${numeroAtual}`;
+        });
+    }
+
+    function saveData() {
+        const dados = {
+            nome: document.getElementById(`nome-${RECIBO_BASE_ID}`).value || "",
+            rg: document.getElementById(`rg-${RECIBO_BASE_ID}`).value || "",
+            cpf: document.getElementById(`cpf-${RECIBO_BASE_ID}`).value || "",
+            venc: document.getElementById(`venc-${RECIBO_BASE_ID}`).value || "",
+            lote: document.getElementById(`lote-${RECIBO_BASE_ID}`).value || "",
+            parcela: document.getElementById(`parcela-${RECIBO_BASE_ID}`).value || "",
+            valor: document.getElementById(`valor-${RECIBO_BASE_ID}`).value || ""
+        };
+        try { localStorage.setItem('reciboData_vFinal_Opt', JSON.stringify(dados)); } catch (e) { console.warn("Quota excedida ao salvar", e); }
+    }
+
+    function loadData() {
+        const salvo = localStorage.getItem('reciboData_vFinal_Opt');
+        if (!salvo) return;
+        try {
+            const d = JSON.parse(salvo);
+            const base = RECIBO_BASE_ID;
+            const set = (k, v) => { if (v !== undefined && v !== null) document.getElementById(`${k}-${base}`).value = v; };
+            set('nome', d.nome); set('rg', d.rg); set('cpf', d.cpf);
+            set('venc', d.venc); set('lote', d.lote); set('parcela', d.parcela);
+            set('valor', d.valor);
+        } catch (e) { console.error(e); }
+    }
+
+    function openConfigModal() {
+        const modal = document.getElementById('config-modal');
+        const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{"mode":"pdf"}');
+        document.querySelectorAll('input[name="downloadMode"]').forEach(r => r.checked = (r.value === saved.mode));
+        modal.style.display = 'flex';
+    }
+    function closeConfigModal() { document.getElementById('config-modal').style.display = 'none'; }
+    function saveConfigModal() {
+        const mode = document.querySelector('input[name="downloadMode"]:checked').value || 'pdf';
+        localStorage.setItem(CONFIG_KEY, JSON.stringify({ mode }));
+        closeConfigModal();
+    }
+
+    function dataURLToBlob(dataURL) {
+        const parts = dataURL.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1];
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+        return new Blob([u8arr], { type: mime });
+    }
+
+    function triggerDownloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    async function generateZipAndDownload(items, zipName = 'Imagens_Recibos.zip') {
+        const zip = new JSZip();
+        items.forEach(it => zip.file(it.name, it.blob));
+        const content = await zip.generateAsync({ type: 'blob' });
+        triggerDownloadBlob(content, zipName);
+    }
+
+    async function gerarPDF() {
+        const loading = document.getElementById('loading');
+        const progressEl = document.getElementById('loading-progress');
+        loading.style.display = 'flex';
+
+        const limpar = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '_').replace(/\s+/g, '_').toLowerCase();
+
+        const valorNome = document.getElementById(`nome-${RECIBO_BASE_ID}`).value || "Recibo";
+        const valorLote = document.getElementById(`lote-${RECIBO_BASE_ID}`).value || "Geral";
+        const anoAtual = new Date().getFullYear();
+
+        const nomeSanitizado = limpar(valorNome);
+        const loteSanitizado = limpar(valorLote);
+        const nomeBaseArquivo = `${nomeSanitizado}_Lote_${loteSanitizado}_${anoAtual}`;
+
+        const modalConfig = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{"mode":"pdf"}');
+        const downloadMode = modalConfig.mode || 'pdf';
+        const ghost = document.createElement('div');
+        ghost.style.position = 'absolute'; ghost.style.left = '-9999px'; ghost.style.top = '0'; ghost.style.width = '820px'; ghost.style.background = '#fff'; ghost.style.padding = '20px';
+        document.body.appendChild(ghost);
+
+        try {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF('p', 'mm', 'a4');
+            const recibos = document.querySelectorAll('.recibo');
+            const criticalCss = `*, *::before, *::after { box-sizing: border-box !important; } body, .recibo, .lado { font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important; } .recibo { width: 820px !important; border: 1px solid #000 !important; border-radius: 6px !important; box-shadow: none !important; } .lado { box-sizing: border-box !important; } .lado:first-child::before, .lado:first-child::after { background: #fff !important; box-shadow: inset 0 0 0 1px #000 !important; } .titulo-recibo { background-color: #eef4ef !important; border: 1px solid #1E6B3D !important; color: #123F24 !important; }`;
+            const generatedPNGs = [];
+
+            const deviceMemory = navigator.deviceMemory || 4;
+            const scaleBase = deviceMemory <= 2 ? 1.5 : Math.max(2, window.devicePixelRatio || 2);
+
+            for (let i = 0; i < recibos.length; i++) {
+                if (progressEl) progressEl.textContent = `Processando ${i + 1} de ${recibos.length}...`;
+
+                const clone = recibos[i].cloneNode(true);
+                clone.style.flexDirection = 'row'; clone.style.border = '1px solid #000'; clone.style.minHeight = '0'; clone.style.width = '780px';
+                const styleTag = document.createElement('style'); styleTag.innerHTML = criticalCss; clone.prepend(styleTag);
+
+                const inputs = clone.querySelectorAll('input');
+                inputs.forEach(inp => {
+                    const wrapDiv = document.createElement('div');
+                    const labelEl = inp.closest('.campo')?.querySelector('label');
+                    if (labelEl) {
+                        const labelDiv = document.createElement('div');
+                        labelDiv.className = 'label-text-pdf';
+                        labelDiv.textContent = labelEl.textContent;
+                        wrapDiv.appendChild(labelDiv);
+                    }
+                    const textDiv = document.createElement('div'); textDiv.className = 'linha-text'; textDiv.textContent = inp.value || inp.getAttribute('value') || inp.placeholder || '';
+                    const cs = window.getComputedStyle(inp); textDiv.style.width = '100%'; textDiv.style.fontWeight = '700'; textDiv.style.fontSize = '15px'; textDiv.style.fontFamily = '"Courier New", Courier, monospace';
+                    wrapDiv.appendChild(textDiv);
+                    inp.parentNode.replaceChild(wrapDiv, inp);
+                });
+                clone.querySelectorAll('.campo label').forEach(l => l.remove());
+
+                ghost.appendChild(clone);
+                const canvas = await html2canvas(clone, { scale: scaleBase, backgroundColor: '#ffffff', useCORS: true, allowTaint: false, width: clone.offsetWidth, windowWidth: 1200 });
+                const dataUrl = canvas.toDataURL('image/png', 0.95);
+                const pngBlob = dataURLToBlob(dataUrl);
+
+                generatedPNGs.push({ blob: pngBlob, name: `${nomeBaseArquivo}_${i+1}.png` });
+
+                if (downloadMode === 'pdf' || downloadMode === 'both') {
+                    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                    const imgWidth = 190;
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    const espacoEntreRecibos = 3;
+                    const alturaTotalItem = imgHeight + espacoEntreRecibos;
+
+                    if (i > 0 && i % 4 === 0) doc.addPage();
+                    const margemTopo = 10;
+                    const posY = margemTopo + ((i % 4) * alturaTotalItem);
+
+                    doc.setLineWidth(0.2);
+                    doc.setLineDash([3, 3], 0);
+                    doc.setDrawColor(100);
+                    doc.line(0, posY - 1.5, 210, posY - 1.5);
+
+                    doc.addImage(imgData, 'JPEG', 10, posY, imgWidth, imgHeight);
+
+                    doc.setLineDash([], 0);
+                    doc.setLineWidth(0.3);
+                    doc.setDrawColor(0);
+                    doc.rect(10, posY, imgWidth, imgHeight);
+
+                    if (i === recibos.length - 1 || (i + 1) % 4 === 0) {
+                         doc.setLineWidth(0.2);
+                         doc.setLineDash([3, 3], 0);
+                         doc.setDrawColor(100);
+                         doc.line(0, posY + imgHeight + 1.5, 210, posY + imgHeight + 1.5);
+                    }
+                }
+                ghost.innerHTML = '';
+                if (i < recibos.length - 1) await new Promise(r => setTimeout(r, 0));
+            }
+
+            if (progressEl) progressEl.textContent = 'Finalizando arquivo...';
+
+            if (downloadMode === 'pngs' || downloadMode === 'zip') {
+                await generateZipAndDownload(generatedPNGs, `${nomeBaseArquivo}.zip`);
+            }
+            else if (downloadMode === 'pdf') {
+                doc.save(`${nomeBaseArquivo}.pdf`);
+            }
+            else if (downloadMode === 'both') {
+                doc.save(`${nomeBaseArquivo}.pdf`);
+                await generateZipAndDownload(generatedPNGs, `${nomeBaseArquivo}.zip`);
+            }
+
+        } catch (err) { console.error(err); alert('Ocorreu um erro ao gerar o arquivo: ' + err.message); }
+        finally { if (ghost && ghost.parentNode) { document.body.removeChild(ghost); } loading.style.display = 'none'; if (progressEl) progressEl.textContent = ''; }
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gerador de Ícones — Ferramenta Interna</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: #f0f0ee; margin: 0; padding: 24px 16px 60px; color: #1a1a1a; }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  p.sub { color: #666; font-size: 13px; margin: 0 0 24px; }
+  .card { background: #fff; border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid #e2e2e0; }
+  label { font-size: 13px; font-weight: 700; display: block; margin-bottom: 8px; }
+  .color-row { display: flex; gap: 10px; align-items: center; }
+  input[type="color"] { width: 52px; height: 44px; border: 1px solid #ddd; border-radius: 8px; padding: 2px; background: none; cursor: pointer; }
+  input[type="text"] { flex: 1; font-family: monospace; font-size: 15px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; }
+  .presets { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .preset { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #ddd; cursor: pointer; }
+  .previews { display: flex; gap: 16px; justify-content: center; margin: 18px 0; flex-wrap: wrap; }
+  .preview-item { text-align: center; }
+  .preview-item canvas { border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.12); background: #fff; }
+  .preview-item span { display: block; font-size: 11px; color: #777; margin-top: 6px; }
+  .btn-row { display: flex; gap: 10px; }
+  button { flex: 1; padding: 13px; font-size: 14px; font-weight: 700; border: none; border-radius: 10px; cursor: pointer; }
+  .btn-secondary { background: #eceae5; color: #1a1a1a; }
+  .btn-primary { background: #1a1a1a; color: #fff; }
+  .individual-links { display: flex; gap: 14px; justify-content: center; margin-top: 12px; font-size: 12.5px; }
+  .individual-links a { color: #1a6b3d; text-decoration: none; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎫 Gerador de Ícones do Carnê</h1>
+  <p class="sub">Ferramenta interna — use pra gerar os 3 ícones de cada cliente rapidinho. Não faz parte do app que vai pro cliente.</p>
+
+  <div class="card">
+    <label>Cor da marca do cliente</label>
+    <div class="color-row">
+      <input type="color" id="colorPicker" value="#1E6B3D" />
+      <input type="text" id="colorHex" value="#1E6B3D" maxlength="7" />
+    </div>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="card">
+    <div class="previews">
+      <div class="preview-item"><canvas id="cv192" width="192" height="192"></canvas><span>192×192</span></div>
+      <div class="preview-item"><canvas id="cv512" width="180" height="180"></canvas><span>512×512</span></div>
+      <div class="preview-item"><canvas id="cvMask" width="180" height="180"></canvas><span>maskable</span></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="btnRandom">🎲 Cor aleatória</button>
+      <button class="btn-primary" id="btnZip">⬇️ Baixar os 3 (ZIP)</button>
+    </div>
+    <div class="individual-links">
+      <a href="#" id="linkIcon192">icon-192.png</a>
+      <a href="#" id="linkIcon512">icon-512.png</a>
+      <a href="#" id="linkIconMask">icon-maskable.png</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const PRESETS = ['#1E6B3D', '#1565C0', '#B71C1C', '#6A1B9A', '#E65100', '#00695C', '#5D4037', '#37474F'];
+
+function hexToRgb(hex) {
+    hex = hex.replace('#', '');
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    const num = parseInt(hex, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function roundRectPath(ctx, x, y, w, h, rTL, rTR, rBR, rBL) {
+    ctx.beginPath();
+    ctx.moveTo(x + rTL, y);
+    ctx.lineTo(x + w - rTR, y);
+    ctx.arcTo(x + w, y, x + w, y + rTR, rTR);
+    ctx.lineTo(x + w, y + h - rBR);
+    ctx.arcTo(x + w, y + h, x + w - rBR, y + h, rBR);
+    ctx.lineTo(x + rBL, y + h);
+    ctx.arcTo(x, y + h, x, y + h - rBL, rBL);
+    ctx.lineTo(x, y + rTL);
+    ctx.arcTo(x, y, x + rTL, y, rTL);
+    ctx.closePath();
+}
+
+// Desenha o ícone do recibo (papel com rasgo em zigue-zague) num canvas de qualquer tamanho
+function drawReceiptIcon(canvas, size, colorHex, maskable) {
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+
+    // Fundo
+    if (maskable) {
+        ctx.fillStyle = colorHex;
+        ctx.fillRect(0, 0, size, size);
+    } else {
+        const bgRadius = size * 0.22;
+        roundRectPath(ctx, 0, 0, size, size, bgRadius, bgRadius, bgRadius, bgRadius);
+        ctx.fillStyle = colorHex;
+        ctx.fill();
+    }
+
+    const paperW = maskable ? size * 0.44 : size * 0.50;
+    const paperH = maskable ? size * 0.54 : size * 0.60;
+    const cx = size / 2;
+    const cy = size / 2 - size * 0.01;
+    const left = cx - paperW / 2;
+    const top = cy - paperH / 2;
+    const right = cx + paperW / 2;
+    const bottomFlat = cy + paperH / 2;
+    const cornerR = paperW * 0.09;
+
+    // Papel branco (cantos de cima arredondados)
+    roundRectPath(ctx, left, top, paperW, paperH, cornerR, cornerR, cornerR, cornerR);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fill();
+
+    // Rasgo em zigue-zague na base
+    const teeth = 7;
+    const toothW = paperW / teeth;
+    const toothH = paperH * 0.075;
+    ctx.fillStyle = colorHex;
+    for (let i = 0; i < teeth; i++) {
+        const x0 = left + i * toothW;
+        const x1 = left + (i + 1) * toothW;
+        const xm = (x0 + x1) / 2;
+        ctx.beginPath();
+        ctx.moveTo(x0, bottomFlat);
+        ctx.lineTo(x1, bottomFlat);
+        ctx.lineTo(xm, bottomFlat - toothH);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // Linhas de conteúdo
+    const innerPad = paperW * 0.16;
+    const lineW = Math.max(2, size * 0.014);
+    ctx.strokeStyle = colorHex;
+    ctx.lineCap = 'round';
+
+    const items = [
+        { yf: 0.20, wf: 0.68 },
+        { yf: 0.32, wf: 0.50 },
+        { yf: 0.44, wf: 0.68 }
+    ];
+    ctx.lineWidth = lineW;
+    items.forEach(it => {
+        const y = top + paperH * it.yf;
+        const x0 = left + innerPad;
+        const x1 = x0 + (paperW - 2 * innerPad) * it.wf;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+    });
+
+    // Linha fina (régua) + linha grossa do total
+    const ruleY = top + paperH * 0.60;
+    ctx.lineWidth = Math.max(1, size * 0.006);
+    ctx.beginPath(); ctx.moveTo(left + innerPad, ruleY); ctx.lineTo(right - innerPad, ruleY); ctx.stroke();
+
+    const totalY = top + paperH * 0.70;
+    const totalX1 = left + innerPad + (paperW - 2 * innerPad) * 0.55;
+    ctx.lineWidth = lineW * 1.8;
+    ctx.beginPath(); ctx.moveTo(left + innerPad, totalY); ctx.lineTo(totalX1, totalY); ctx.stroke();
+}
+
+function canvasToBlob(canvas) {
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+function redrawAll() {
+    const hex = document.getElementById('colorHex').value;
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
+    document.getElementById('colorPicker').value = hex;
+
+    const cv192 = document.getElementById('cv192');
+    const cv512 = document.getElementById('cv512');
+    const cvMask = document.getElementById('cvMask');
+
+    drawReceiptIcon(cv192, 192, hex, false);
+
+    // Canvas de preview em 180px, mas exporta em 512 de verdade (canvas offscreen)
+    const off512 = document.createElement('canvas');
+    drawReceiptIcon(off512, 512, hex, false);
+    cv512.getContext('2d').clearRect(0,0,180,180);
+    cv512.getContext('2d').drawImage(off512, 0, 0, 180, 180);
+    cv512.dataset.fullRes = 'pending';
+    cv512._offscreen = off512;
+
+    const offMask = document.createElement('canvas');
+    drawReceiptIcon(offMask, 512, hex, true);
+    cvMask.getContext('2d').clearRect(0,0,180,180);
+    cvMask.getContext('2d').drawImage(offMask, 0, 0, 180, 180);
+    cvMask._offscreen = offMask;
+
+    updateDownloadLinks(cv192, off512, offMask);
+}
+
+async function updateDownloadLinks(cv192, off512, offMask) {
+    const b192 = await canvasToBlob(cv192);
+    const b512 = await canvasToBlob(off512);
+    const bMask = await canvasToBlob(offMask);
+
+    setLink('linkIcon192', b192, 'icon-192.png');
+    setLink('linkIcon512', b512, 'icon-512.png');
+    setLink('linkIconMask', bMask, 'icon-maskable.png');
+
+    document.getElementById('btnZip').onclick = async () => {
+        const zip = new JSZip();
+        zip.file('icon-192.png', b192);
+        zip.file('icon-512.png', b512);
+        zip.file('icon-maskable.png', bMask);
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'icones-cliente.zip';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+    };
+}
+
+function setLink(id, blob, filename) {
+    const a = document.getElementById(id);
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+}
+
+document.getElementById('colorPicker').addEventListener('input', (e) => {
+    document.getElementById('colorHex').value = e.target.value.toUpperCase();
+    redrawAll();
+});
+document.getElementById('colorHex').addEventListener('input', redrawAll);
+
+document.getElementById('btnRandom').addEventListener('click', () => {
+    const hex = '#' + Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, '0').toUpperCase();
+    document.getElementById('colorHex').value = hex;
+    redrawAll();
+});
+
+const presetsEl = document.getElementById('presets');
+PRESETS.forEach(hex => {
+    const dot = document.createElement('div');
+    dot.className = 'preset';
+    dot.style.background = hex;
+    dot.title = hex;
+    dot.addEventListener('click', () => {
+        document.getElementById('colorHex').value = hex;
+        redrawAll();
+    });
+    presetsEl.appendChild(dot);
+});
+
+redrawAll();
+</script>
+</body>
+</html>
