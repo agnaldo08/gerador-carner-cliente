@@ -79,6 +79,7 @@
             position: sticky; top: 0; z-index: 100;
         }
         header .logo-mark { flex-shrink: 0; color: var(--primary); }
+        header .logo-mark-img { flex-shrink: 0; height: 26px; width: auto; border-radius: 4px; }
         header .header-text { display: flex; flex-direction: column; line-height: 1.25; }
         header .header-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
         header .header-sub { font-size: 12px; font-weight: 400; color: var(--ink-soft); }
@@ -269,7 +270,10 @@
     </style>
 </head>
 <body>
-    <!-- 🎨 PERSONALIZAÇÃO: nome do negócio e frase abaixo dele -->
+    <!-- 🎨 PERSONALIZAÇÃO: nome do negócio e frase abaixo dele.
+         Se o cliente tiver logo própria, troque o <svg class="logo-mark">...</svg>
+         abaixo por: <img src="./logo.png" alt="Logo" class="logo-mark-img" />
+         (envie o arquivo logo.png junto com os outros no repositório do cliente) -->
     <header>
         <svg class="logo-mark" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 2.5h12a1 1 0 0 1 1 1v16.2l-1.8-1.2-1.7 1.2-1.7-1.2-1.8 1.2-1.7-1.2-1.8 1.2-1.7-1.2L5 19.7V3.5a1 1 0 0 1 1-1z"/>

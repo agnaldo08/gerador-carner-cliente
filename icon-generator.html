@@ -28,6 +28,11 @@
   .btn-primary { background: #1a1a1a; color: #fff; }
   .individual-links { display: flex; gap: 14px; justify-content: center; margin-top: 12px; font-size: 12.5px; }
   .individual-links a { color: #1a6b3d; text-decoration: none; font-weight: 700; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; background: #f0efec; padding: 4px; border-radius: 10px; }
+  .tab-btn { flex: 1; padding: 9px; font-size: 13px; font-weight: 700; border: none; background: transparent; border-radius: 8px; cursor: pointer; color: #666; }
+  .tab-btn.active { background: #fff; color: #1a1a1a; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  input[type="file"] { width: 100%; font-size: 13px; padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafaf8; }
+  .hint { font-size: 12px; color: #888; margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -36,12 +41,32 @@
   <p class="sub">Ferramenta interna — use pra gerar os 3 ícones de cada cliente rapidinho. Não faz parte do app que vai pro cliente.</p>
 
   <div class="card">
-    <label>Cor da marca do cliente</label>
-    <div class="color-row">
-      <input type="color" id="colorPicker" value="#1E6B3D" />
-      <input type="text" id="colorHex" value="#1E6B3D" maxlength="7" />
+    <div class="tabs" id="tabs">
+      <button class="tab-btn active" data-tab="cor">Sem logo (ícone padrão)</button>
+      <button class="tab-btn" data-tab="logo">Com logo do cliente</button>
     </div>
-    <div class="presets" id="presets"></div>
+
+    <div id="tab-cor" class="tab-content">
+      <label>Cor da marca do cliente</label>
+      <div class="color-row">
+        <input type="color" id="colorPicker" value="#1E6B3D" />
+        <input type="text" id="colorHex" value="#1E6B3D" maxlength="7" />
+      </div>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div id="tab-logo" class="tab-content" style="display:none;">
+      <label>Logo do cliente (PNG ou JPG, de preferência quadrada)</label>
+      <input type="file" id="logoInput" accept="image/png,image/jpeg,image/webp" />
+      <p id="logoStatus" class="hint">Nenhuma imagem selecionada ainda.</p>
+
+      <label style="margin-top:16px;">Cor de fundo atrás da logo</label>
+      <div class="color-row">
+        <input type="color" id="colorPickerLogo" value="#FFFFFF" />
+        <input type="text" id="colorHexLogo" value="#FFFFFF" maxlength="7" />
+      </div>
+      <div class="presets" id="presetsLogo"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -167,34 +192,84 @@ function drawReceiptIcon(canvas, size, colorHex, maskable) {
     ctx.beginPath(); ctx.moveTo(left + innerPad, totalY); ctx.lineTo(totalX1, totalY); ctx.stroke();
 }
 
+// Desenha o ícone usando uma imagem de logo enviada pelo cliente, centralizada sobre um fundo colorido
+function drawLogoIcon(canvas, size, bgHex, img, maskable) {
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+
+    if (maskable) {
+        ctx.fillStyle = bgHex;
+        ctx.fillRect(0, 0, size, size);
+    } else {
+        const r = size * 0.22;
+        roundRectPath(ctx, 0, 0, size, size, r, r, r, r);
+        ctx.fillStyle = bgHex;
+        ctx.fill();
+    }
+
+    // Logo "contida" numa caixa central, sem esticar (mantém proporção)
+    const boxFrac = maskable ? 0.50 : 0.68;
+    const box = size * boxFrac;
+    const scale = Math.min(box / img.width, box / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    const x = (size - w) / 2;
+    const y = (size - h) / 2;
+    ctx.drawImage(img, x, y, w, h);
+}
+
 function canvasToBlob(canvas) {
     return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 }
 
-function redrawAll() {
-    const hex = document.getElementById('colorHex').value;
-    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
-    document.getElementById('colorPicker').value = hex;
+let mode = 'cor';
+let logoImage = null;
 
+function redrawAll() {
     const cv192 = document.getElementById('cv192');
     const cv512 = document.getElementById('cv512');
     const cvMask = document.getElementById('cvMask');
 
+    if (mode === 'logo') {
+        if (!logoImage) return; // aguarda o upload
+        const bgHex = document.getElementById('colorHexLogo').value;
+        if (!/^#[0-9A-Fa-f]{6}$/.test(bgHex)) return;
+        document.getElementById('colorPickerLogo').value = bgHex;
+
+        drawLogoIcon(cv192, 192, bgHex, logoImage, false);
+
+        const off512 = document.createElement('canvas');
+        drawLogoIcon(off512, 512, bgHex, logoImage, false);
+        cv512.getContext('2d').clearRect(0, 0, 180, 180);
+        cv512.getContext('2d').drawImage(off512, 0, 0, 180, 180);
+
+        const offMask = document.createElement('canvas');
+        drawLogoIcon(offMask, 512, bgHex, logoImage, true);
+        cvMask.getContext('2d').clearRect(0, 0, 180, 180);
+        cvMask.getContext('2d').drawImage(offMask, 0, 0, 180, 180);
+
+        updateDownloadLinks(cv192, off512, offMask);
+        return;
+    }
+
+    // Modo "sem logo" (ícone padrão de recibo, na cor escolhida)
+    const hex = document.getElementById('colorHex').value;
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
+    document.getElementById('colorPicker').value = hex;
+
     drawReceiptIcon(cv192, 192, hex, false);
 
-    // Canvas de preview em 180px, mas exporta em 512 de verdade (canvas offscreen)
     const off512 = document.createElement('canvas');
     drawReceiptIcon(off512, 512, hex, false);
     cv512.getContext('2d').clearRect(0,0,180,180);
     cv512.getContext('2d').drawImage(off512, 0, 0, 180, 180);
-    cv512.dataset.fullRes = 'pending';
-    cv512._offscreen = off512;
 
     const offMask = document.createElement('canvas');
     drawReceiptIcon(offMask, 512, hex, true);
     cvMask.getContext('2d').clearRect(0,0,180,180);
     cvMask.getContext('2d').drawImage(offMask, 0, 0, 180, 180);
-    cvMask._offscreen = offMask;
 
     updateDownloadLinks(cv192, off512, offMask);
 }
@@ -235,10 +310,46 @@ document.getElementById('colorPicker').addEventListener('input', (e) => {
 });
 document.getElementById('colorHex').addEventListener('input', redrawAll);
 
+document.getElementById('colorPickerLogo').addEventListener('input', (e) => {
+    document.getElementById('colorHexLogo').value = e.target.value.toUpperCase();
+    redrawAll();
+});
+document.getElementById('colorHexLogo').addEventListener('input', redrawAll);
+
 document.getElementById('btnRandom').addEventListener('click', () => {
     const hex = '#' + Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, '0').toUpperCase();
     document.getElementById('colorHex').value = hex;
     redrawAll();
+});
+
+document.getElementById('logoInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const status = document.getElementById('logoStatus');
+    status.textContent = 'Carregando...';
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+            logoImage = img;
+            status.textContent = `✅ ${file.name} (${img.width}×${img.height}px)`;
+            redrawAll();
+        };
+        img.onerror = () => { status.textContent = '⚠️ Não foi possível abrir essa imagem.'; };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        mode = btn.dataset.tab;
+        document.getElementById('tab-cor').style.display = mode === 'cor' ? 'block' : 'none';
+        document.getElementById('tab-logo').style.display = mode === 'logo' ? 'block' : 'none';
+        redrawAll();
+    });
 });
 
 const presetsEl = document.getElementById('presets');
@@ -252,6 +363,20 @@ PRESETS.forEach(hex => {
         redrawAll();
     });
     presetsEl.appendChild(dot);
+});
+
+const presetsLogoEl = document.getElementById('presetsLogo');
+['#FFFFFF', '#F5F3EE', '#1A1A1A', '#E7E7E7'].forEach(hex => {
+    const dot = document.createElement('div');
+    dot.className = 'preset';
+    dot.style.background = hex;
+    dot.style.boxShadow = '0 0 0 1px #ccc';
+    dot.title = hex;
+    dot.addEventListener('click', () => {
+        document.getElementById('colorHexLogo').value = hex;
+        redrawAll();
+    });
+    presetsLogoEl.appendChild(dot);
 });
 
 redrawAll();
