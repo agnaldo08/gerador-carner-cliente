@@ -1,7 +1,7 @@
 // Service Worker do Gerador de Carnês
 // Estratégia: cache-first para o app shell + bibliotecas, com atualização em segundo plano.
 // Suba a versão do CACHE_NAME sempre que publicar uma alteração no index.html.
-const CACHE_NAME = 'carnes-app-v6';
+const CACHE_NAME = 'carnes-app-v7';
 
 const APP_SHELL = [
   './',
