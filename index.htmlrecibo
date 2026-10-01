@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Recibo de Pagamento</title>
+    <!-- Para app/offline: baixe estes dois arquivos para a pasta do projeto (ex.: libs/) e troque os src. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px 0; display:flex;flex-direction:column;align-items:center; }
+        .recibo-container { width:820px; max-width:95%; margin:20px auto; background:#fff; padding:20px; border:1px solid #000; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+        .recibo { display:flex; flex-wrap:wrap; border:1px solid #000; background:#fff; }
+        .linha-pontilhada-horizontal { border-top:1px dashed #000; margin:20px 0; }
+        .recibo-wrapper:last-child .linha-pontilhada-horizontal { display:none; }
+        .lado { width:50%; padding:10px; box-sizing:border-box; }
+        .lado:not(:last-child) { border-right:1px dashed #000; }
+        .campo { margin-bottom:12px; display:flex; align-items:center; flex-wrap:wrap; }
+        .campo label { width:80px; font-weight:bold; flex-shrink:0; }
+        .linha { flex-grow:1; border:1px solid #ccc; padding:4px; border-radius:3px; margin-left:10px; outline:none; min-width:150px; }
+        .titulo-recibo { font-weight:bold; font-size:16px; margin-bottom:5px; text-align:center; }
+        .botoes-container { display:flex; flex-direction:column; align-items:center; gap:15px; margin:20px auto; padding:20px; background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1); width:820px; max-width:95%; box-sizing:border-box; }
+        .controles-config,.controles-botoes { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:10px; }
+        .botao { display:inline-block; width:150px; padding:10px 20px; font-size:16px; color:white; background-color:#4caf50; border:none; cursor:pointer; text-align:center; border-radius:4px; transition:background-color .3s; }
+        .botao:hover { background-color:#45a049; }
+        .botao.voltar { background-color:#f44336; }
+        .botao.voltar:hover { background-color:#e53935; }
+        .botao.toggle { background-color:#008CBA; }
+        .botao.toggle:hover { background-color:#007BA5; }
+        .botao.neutro { background-color:#757575; }
+        .botao.neutro:hover { background-color:#616161; }
+        .input-quantidade,.select-quantidade { display:inline-block; vertical-align:middle; padding:10px; font-size:16px; text-align:center; border-radius:4px; border:1px solid #ccc; }
+        .input-quantidade { width:60px; } .select-quantidade { width:80px; }
+        .pix-container { align-items:flex-start; }
+        /* QR maior (90px) para facilitar a leitura no PDF impresso */
+        .pix-qrcode-area { width:90px; height:90px; border:1px solid #ccc; background:#f0f0f0; position:relative; margin-left:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .pix-input { display:none; }
+        .pix-label { display:flex; justify-content:center; align-items:center; width:100%; height:100%; text-align:center; color:#888; font-size:10px; }
+        .pix-image { display:none; width:100%; height:100%; object-fit:contain; position:absolute; top:0; left:0; background:white; }
+        .pix-image[src] { display:block; }
+        .pix-image[src] + span { display:none; }
+        .pix-container.is-hidden { display:none !important; }
+        #loading-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.7); color:white; font-size:24px; display:flex; align-items:center; justify-content:center; z-index:1000; }
+        #custom-alert-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:2000; padding:15px; box-sizing:border-box; }
+        #custom-alert-box { background:white; padding:25px; border-radius:8px; box-shadow:0 4px 15px rgba(0,0,0,.25); text-align:center; width:100%; max-width:400px; }
+        #custom-alert-box .botao { margin-top:10px; width:100px; }
+        @media (max-width:840px) { .controles-botoes { flex-direction:column; width:90%; } .botao { width:100%; } .lado { width:100%; } .lado:not(:last-child) { border-right:none; border-bottom:1px dashed #000; } }
+        @media print { body{background:#fff;padding:0;} .botoes-container,#loading-overlay,#custom-alert-overlay{display:none;} .recibo-container{width:100%;border:none;box-shadow:none;margin:0;padding:0;} .recibo-wrapper{page-break-inside:avoid;} }
+    </style>
+</head>
+<body>
+    <div class="botoes-container">
+        <div class="controles-config">
+            <label for="quantidade-recibos">Quantos recibos deseja gerar?</label>
+            <input type="number" id="quantidade-recibos" class="input-quantidade" min="1" value="1" />
+            <label for="total-parcelas">Total de Parcelas:</label>
+            <select id="total-parcelas" class="select-quantidade">
+                <option value="60" selected>60</option>
+                <option value="80">80</option>
+                <option value="90">90</option>
+            </select>
+        </div>
+        <div class="controles-botoes">
+            <button class="botao" id="gerar-mais">Gerar Mais</button>
+            <button class="botao" id="gerar-pdf">Gerar PDF</button>
+            <button class="botao toggle" id="toggle-pix">Ocultar/Exibir PIX</button>
+            <button class="botao voltar" id="voltar">Remover Último</button>
+            <button class="botao neutro" id="limpar-dados">Limpar Dados</button>
+        </div>
+    </div>
+
+    <div class="recibo-container" id="recibo-container"></div>
+
+    <div id="loading-overlay" style="display:none;"><span>Gerando PDF, por favor aguarde...</span></div>
+
+    <div id="custom-alert-overlay" style="display:none;">
+        <div id="custom-alert-box" role="alertdialog" aria-modal="true" aria-describedby="custom-alert-message">
+            <p id="custom-alert-message"></p>
+            <button class="botao" id="custom-alert-ok">OK</button>
+        </div>
+    </div>
+
+    <template id="recibo-template">
+        <div class="recibo-wrapper">
+            <div class="recibo" id="recibo-ID">
+                <div class="lado">
+                    <div class="campo"><label for="nome-ID">Nome:</label><input class="linha" id="nome-ID" value="" /></div>
+                    <div class="campo"><label for="rg-ID">RG:</label><input class="linha" id="rg-ID" value="" /></div>
+                    <div class="campo"><label for="cpf-ID">CPF:</label><input class="linha" id="cpf-ID" value="" inputmode="numeric" /></div>
+                    <div class="campo"><label for="venc-ID">Venc:</label><input class="linha" id="venc-ID" value="" placeholder="DD/MM/AAAA" /></div>
+                    <div class="campo"><label for="lote-ID">Lote:</label><input class="linha" id="lote-ID" value="" /></div>
+                    <div class="campo"><label for="parcela-ID">Parcela:</label><input class="linha" id="parcela-ID" value="" /></div>
+                    <div class="campo"><label for="valor-ID">Valor:</label><input class="linha" id="valor-ID" value="" /></div>
+                </div>
+                <div class="lado">
+                    <div class="titulo-recibo" id="titulo-recibo-ID">Recibo de Pagamento Nº ID</div>
+                    <div class="campo"><label for="nome-lado2-ID">Nome:</label><input class="linha" id="nome-lado2-ID" value="" /></div>
+                    <div class="campo"><label for="lote-lado2-ID">Lote:</label><input class="linha" id="lote-lado2-ID" value="" /></div>
+                    <div class="campo"><label for="parcela-lado2-ID">Nº Parcelas:</label><input class="linha" id="parcela-lado2-ID" value="" /></div>
+                    <div class="campo"><label for="valor-lado2-ID">Valor:</label><input class="linha" id="valor-lado2-ID" value="" /></div>
+                    <div class="campo pix-container">
+                        <label>PIX:</label>
+                        <div class="pix-qrcode-area">
+                            <label for="pix-input-ID" class="pix-label">
+                                <input type="file" id="pix-input-ID" class="pix-input" accept="image/*">
+                                <img id="pix-image-ID" alt="QR Code PIX" class="pix-image">
+                                <span>Clique para adicionar QR Code</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="linha-pontilhada-horizontal"></div>
+        </div>
+    </template>
+
+    <script>
+        // ---------- Utilitários ----------
+        const alertOverlay = document.getElementById('custom-alert-overlay');
+        const alertMessage = document.getElementById('custom-alert-message');
+        const alertOkButton = document.getElementById('custom-alert-ok');
+        function showAlert(message){ alertMessage.textContent = message; alertOverlay.style.display = 'flex'; alertOkButton.focus(); }
+        alertOkButton.addEventListener('click', () => { alertOverlay.style.display = 'none'; });
+
+        // localStorage protegido (pode falhar em modo privado/WebView)
+        const safeGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+        const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+        const safeRemove = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+
+        // ---------- Datas (sem moment.js) ----------
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const formatarData = (d) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+        const hoje = () => formatarData(new Date());
+        function parseData(str) {
+            const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((str || '').trim());
+            if (!m) return null;
+            const d = new Date(+m[3], +m[2] - 1, +m[1]);
+            // rejeita datas "roladas" (ex.: 31/02)
+            return (d.getFullYear() === +m[3] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[1]) ? d : null;
+        }
+        // soma n meses mantendo o dia de vencimento (ajusta para o último dia do mês quando necessário)
+        function somarMeses(dataBase, n, dia) {
+            const ultimoDia = new Date(dataBase.getFullYear(), dataBase.getMonth() + n + 1, 0).getDate();
+            return new Date(dataBase.getFullYear(), dataBase.getMonth() + n, Math.min(dia, ultimoDia));
+        }
+
+        // ---------- Estado ----------
+        const RECIBO_BASE_ID = 'base';
+        const STORAGE_DADOS = 'reciboBaseData';
+        const STORAGE_TOTAL = 'reciboTotalParcelas';
+        const reciboContainer = document.getElementById('recibo-container');
+        const reciboTemplate = document.getElementById('recibo-template');
+        const selectTotal = document.getElementById('total-parcelas');
+        let seq = 0;
+        let totalParcelas = 60;
+
+        const idDo = (recibo) => recibo.id.replace('recibo-', '');
+        const baseRecibo = () => document.getElementById(`recibo-${RECIBO_BASE_ID}`);
+        const campoBase = (nome) => document.getElementById(`${nome}-${RECIBO_BASE_ID}`);
+
+        // QR: usa atributo src somente quando há imagem (evita requisição com src vazio)
+        const setPix = (recibo, src) => {
+            const img = recibo.querySelector('.pix-image');
+            if (!img) return;
+            if (src) img.src = src; else img.removeAttribute('src');
+        };
+        const getPix = (recibo) => { const img = recibo.querySelector('.pix-image'); return (img && img.getAttribute('src')) || ''; };
+
+        const maskCPF = (v) => v.replace(/\D/g, '').slice(0, 11)
+            .replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+
+        // ---------- Persistência ----------
+        const saveReciboBaseData = () => {
+            if (!baseRecibo()) return;
+            const data = {};
+            ['nome', 'rg', 'cpf', 'venc', 'lote', 'parcela', 'valor'].forEach(c => { data[c] = campoBase(c).value; });
+            safeSet(STORAGE_DADOS, JSON.stringify(data));
+        };
+
+        const loadReciboBaseData = () => {
+            let data = null;
+            try { data = JSON.parse(safeGet(STORAGE_DADOS)); } catch (e) {}
+            data = data || {};
+            campoBase('nome').value = data.nome || '';
+            campoBase('rg').value = data.rg || '';
+            campoBase('cpf').value = data.cpf || '';
+            campoBase('venc').value = parseData(data.venc) ? data.venc : hoje();
+            campoBase('lote').value = data.lote || '';
+            campoBase('parcela').value = data.parcela || `1/${totalParcelas}`;
+            campoBase('valor').value = data.valor || '';
+        };
+
+        // ---------- Sincronização / atualização ----------
+        const performInitialSync = (recibo) => {
+            const id = idDo(recibo);
+            ['nome', 'lote', 'valor', 'parcela'].forEach(campo => {
+                const origem = document.getElementById(`${campo}-${id}`);
+                const destino = document.getElementById(`${campo}-lado2-${id}`);
+                if (origem && destino) destino.value = origem.value;
+            });
+        };
+
+        function getParcelaInicial() {
+            const input = campoBase('parcela');
+            if (input && input.value) {
+                const num = parseInt(input.value.split('/')[0].trim(), 10);
+                return isNaN(num) || num < 1 ? 1 : num;
+            }
+            return 1;
+        }
+
+        const atualizarParcelas = () => {
+            const parcelaInicial = getParcelaInicial();
+            document.querySelectorAll('.recibo').forEach((recibo, index) => {
+                const numero = parcelaInicial + index;
+                const id = idDo(recibo);
+                const texto = `${numero}/${totalParcelas}`;
+                recibo.querySelector(`#parcela-${id}`).value = texto;
+                recibo.querySelector(`#parcela-lado2-${id}`).value = texto;
+                recibo.querySelector(`#titulo-recibo-${id}`).textContent = `Recibo de Pagamento Nº ${numero}`;
+            });
+        };
+
+        // recalcula vencimentos a partir do base; fromIndex preserva edições manuais anteriores
+        const atualizarVencimentos = (fromIndex = 1) => {
+            const dataBase = parseData(campoBase('venc').value);
+            if (!dataBase) return false;
+            const dia = dataBase.getDate();
+            document.querySelectorAll('.recibo').forEach((recibo, index) => {
+                if (index < fromIndex) return;
+                recibo.querySelector(`#venc-${idDo(recibo)}`).value = formatarData(somarMeses(dataBase, index, dia));
+            });
+            return true;
+        };
+
+        // ---------- Eventos de cada recibo ----------
+        function setupQRCodeUploader(recibo) {
+            const id = idDo(recibo);
+            const pixInput = recibo.querySelector(`#pix-input-${id}`);
+            if (!pixInput) return;
+            pixInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => document.querySelectorAll('.recibo').forEach(r => setPix(r, e.target.result));
+                reader.readAsDataURL(file);
+                event.target.value = ''; // permite escolher o mesmo arquivo de novo
+            });
+        }
+
+        function attachEventListeners(recibo) {
+            const id = idDo(recibo);
+            const isBase = id === RECIBO_BASE_ID;
+
+            ['nome', 'lote', 'valor'].forEach(campo => {
+                const esq = recibo.querySelector(`#${campo}-${id}`);
+                const dir = recibo.querySelector(`#${campo}-lado2-${id}`);
+                if (esq && dir) esq.addEventListener('input', () => { dir.value = esq.value; });
+            });
+
+            const cpf = recibo.querySelector(`#cpf-${id}`);
+            if (cpf) cpf.addEventListener('input', () => { cpf.value = maskCPF(cpf.value); });
+
+            if (isBase) {
+                ['nome', 'rg', 'cpf', 'venc', 'lote', 'valor', 'parcela'].forEach(campo => {
+                    const input = recibo.querySelector(`#${campo}-${id}`);
+                    if (input) input.addEventListener('input', saveReciboBaseData);
+                });
+                // mudou o vencimento base: recalcula os demais
+                recibo.querySelector(`#venc-${id}`).addEventListener('change', () => {
+                    if (!atualizarVencimentos(1)) { showAlert('Informe um vencimento válido (DD/MM/AAAA).'); return; }
+                    saveReciboBaseData();
+                });
+            }
+
+            // 'change' (e não 'input'): permite digitar parcelas com mais de um dígito
+            const parcelaInput = recibo.querySelector(`#parcela-${id}`);
+            if (parcelaInput) {
+                parcelaInput.addEventListener('change', () => {
+                    let num = parseInt(parcelaInput.value.split('/')[0].trim(), 10);
+                    if (isNaN(num) || num < 1) num = 1;
+                    if (num > totalParcelas) { showAlert(`A parcela não pode passar de ${totalParcelas}.`); num = totalParcelas; }
+                    parcelaInput.value = `${num}/${totalParcelas}`;
+                    if (isBase) { atualizarParcelas(); saveReciboBaseData(); }
+                    performInitialSync(recibo);
+                });
+            }
+            setupQRCodeUploader(recibo);
+        }
+
+        function createNewRecibo(id) {
+            const clone = reciboTemplate.content.cloneNode(true);
+            const wrapper = clone.querySelector('.recibo-wrapper');
+            clone.querySelector('.recibo').id = `recibo-${id}`;
+            wrapper.querySelectorAll('[id]').forEach(el => { el.id = el.id.replace('-ID', `-${id}`); });
+            wrapper.querySelectorAll('[for]').forEach(el => { el.htmlFor = el.htmlFor.replace('-ID', `-${id}`); });
+            reciboContainer.appendChild(clone);
+            return document.getElementById(`recibo-${id}`);
+        }
+
+        // ---------- Ações ----------
+        const gerarMais = () => {
+            const quantidade = parseInt(document.getElementById('quantidade-recibos').value, 10);
+            if (isNaN(quantidade) || quantidade <= 0) { showAlert('Por favor, insira um número válido.'); return; }
+
+            const dataBase = parseData(campoBase('venc').value);
+            if (!dataBase) { showAlert('Informe um vencimento válido (DD/MM/AAAA) antes de gerar.'); return; }
+
+            const existentes = reciboContainer.querySelectorAll('.recibo').length;
+            const parcelaInicial = getParcelaInicial();
+            if ((parcelaInicial + existentes + quantidade - 1) > totalParcelas) {
+                showAlert(`Ação excede o total de ${totalParcelas} parcelas.`); return;
+            }
+
+            const base = baseRecibo();
+            const dados = {
+                nome: campoBase('nome').value, rg: campoBase('rg').value, cpf: campoBase('cpf').value,
+                lote: campoBase('lote').value, valor: campoBase('valor').value,
+                pix: getPix(base), pixHidden: base.querySelector('.pix-container').classList.contains('is-hidden')
+            };
+
+            for (let i = 0; i < quantidade; i++) {
+                const id = `r${++seq}`;
+                const novo = createNewRecibo(id);
+                novo.querySelector(`#nome-${id}`).value = dados.nome;
+                novo.querySelector(`#rg-${id}`).value = dados.rg;
+                novo.querySelector(`#cpf-${id}`).value = dados.cpf;
+                novo.querySelector(`#lote-${id}`).value = dados.lote;
+                novo.querySelector(`#valor-${id}`).value = dados.valor;
+                setPix(novo, dados.pix);
+                if (dados.pixHidden) novo.querySelector('.pix-container').classList.add('is-hidden');
+                performInitialSync(novo);
+                attachEventListeners(novo);
+            }
+            atualizarVencimentos(existentes); // só os novos
+            atualizarParcelas();
+        };
+
+        function resetBase() {
+            const base = baseRecibo();
+            if (!base) return;
+            ['nome', 'rg', 'cpf', 'lote', 'valor'].forEach(c => { campoBase(c).value = ''; });
+            campoBase('venc').value = hoje();
+            campoBase('parcela').value = `1/${totalParcelas}`;
+            setPix(base, '');
+            performInitialSync(base);
+            atualizarParcelas();
+            saveReciboBaseData();
+        }
+
+        const removerUltimo = () => {
+            const wrappers = reciboContainer.querySelectorAll('.recibo-wrapper');
+            if (wrappers.length > 1) {
+                reciboContainer.removeChild(wrappers[wrappers.length - 1]);
+                atualizarParcelas();
+            } else {
+                resetBase();
+            }
+        };
+
+        const limparDados = () => {
+            resetBase();
+            safeRemove(STORAGE_DADOS);
+            showAlert('Dados salvos neste aparelho foram apagados.');
+        };
+
+        // ---------- PDF ----------
+        const gerarPDF = async () => {
+            if (!window.jspdf || !window.html2canvas) {
+                showAlert('As bibliotecas de PDF não foram carregadas. Verifique a conexão ou os arquivos locais.');
+                return;
+            }
+            const loadingOverlay = document.getElementById('loading-overlay');
+            loadingOverlay.style.display = 'flex';
+            await new Promise(r => setTimeout(r, 50)); // deixa o navegador pintar o overlay
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('p', 'mm', 'a4');
+                const recibos = document.querySelectorAll('.recibo');
+                const pageHeight = doc.internal.pageSize.getHeight();
+                const pageWidth = doc.internal.pageSize.getWidth();
+
+                const marginTop = 8, marginBottom = 8, marginSide = 5, gap = 3;
+                const usableWidth = pageWidth - (marginSide * 2);
+                const slotsPerPage = 4;
+                const slotHeight = (pageHeight - marginTop - marginBottom - (slotsPerPage - 1) * gap) / slotsPerPage;
+
+                const linhaPontilhada = (y) => {
+                    doc.setLineDashPattern([2, 2], 0);
+                    doc.line(0, y, pageWidth, y);
+                    doc.setLineDashPattern([], 0);
+                };
+                const drawHeaderLine = () => linhaPontilhada(Math.max(0.5, marginTop - 3));
+                const drawFooterAtBottom = () => linhaPontilhada(pageHeight - Math.max(1, marginBottom - 1));
+                const drawFooterAtY = (y) => linhaPontilhada(Math.min(y, pageHeight - marginBottom - 1));
+
+                drawHeaderLine();
+                if (recibos.length === 0) { drawFooterAtBottom(); doc.save('recibos.pdf'); return; }
+
+                let receiptsOnPage = 0;
+                let currentY = marginTop;
+
+                for (let i = 0; i < recibos.length; i++) {
+                    const canvas = await html2canvas(recibos[i], { scale: 2, backgroundColor: '#ffffff' });
+                    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+                    const imgProps = doc.getImageProperties(imgData);
+
+                    let imgWidth = usableWidth;
+                    let imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+                    if (imgHeight > slotHeight) {
+                        imgHeight = slotHeight;
+                        imgWidth = (imgProps.width * imgHeight) / imgProps.height;
+                    }
+                    const xPos = marginSide + ((usableWidth - imgWidth) / 2);
+
+                    // quebra de página ANTES de definir yPos (tolerância evita erro de ponto flutuante)
+                    if (receiptsOnPage > 0 && currentY + imgHeight + marginBottom > pageHeight + 0.01) {
+                        drawFooterAtBottom();
+                        doc.addPage();
+                        receiptsOnPage = 0;
+                        currentY = marginTop;
+                        drawHeaderLine();
+                    }
+                    const yPos = currentY;
+
+                    doc.addImage(imgData, 'JPEG', xPos, yPos, imgWidth, imgHeight, undefined, 'FAST');
+
+                    const lineYBelowRecibo = yPos + imgHeight + (gap / 2);
+                    if (lineYBelowRecibo < pageHeight - marginBottom) linhaPontilhada(lineYBelowRecibo);
+
+                    currentY += imgHeight + gap;
+                    receiptsOnPage++;
+                    const isLast = (i === recibos.length - 1);
+
+                    if (receiptsOnPage >= slotsPerPage) {
+                        drawFooterAtBottom();
+                        receiptsOnPage = 0;
+                        if (!isLast) { doc.addPage(); currentY = marginTop; drawHeaderLine(); }
+                    } else if (isLast) {
+                        drawFooterAtY(lineYBelowRecibo);
+                    }
+                }
+                doc.save('recibos.pdf');
+            } catch (error) {
+                console.error('Erro ao gerar PDF:', error);
+                showAlert('Ocorreu um erro ao gerar o PDF.');
+            } finally {
+                loadingOverlay.style.display = 'none';
+            }
+        };
+
+        // ---------- Botões ----------
+        document.getElementById('gerar-mais').addEventListener('click', gerarMais);
+        document.getElementById('gerar-pdf').addEventListener('click', gerarPDF);
+        document.getElementById('voltar').addEventListener('click', removerUltimo);
+        document.getElementById('limpar-dados').addEventListener('click', limparDados);
+
+        selectTotal.addEventListener('change', (e) => {
+            const novoTotal = parseInt(e.target.value, 10);
+            const fim = getParcelaInicial() + reciboContainer.querySelectorAll('.recibo').length - 1;
+            if (fim > novoTotal) {
+                showAlert(`Há recibos até a parcela ${fim}. Remova alguns antes de reduzir o total para ${novoTotal}.`);
+                e.target.value = totalParcelas;
+                return;
+            }
+            totalParcelas = novoTotal;
+            safeSet(STORAGE_TOTAL, String(novoTotal));
+            atualizarParcelas();
+            saveReciboBaseData();
+        });
+
+        document.getElementById('toggle-pix').addEventListener('click', () => {
+            const todos = document.querySelectorAll('.pix-container');
+            if (todos.length === 0) return;
+            const ocultar = !todos[0].classList.contains('is-hidden');
+            todos.forEach(c => c.classList.toggle('is-hidden', ocultar));
+        });
+
+        // ---------- Início ----------
+        function init() {
+            const salvo = safeGet(STORAGE_TOTAL);
+            if (salvo && [...selectTotal.options].some(o => o.value === salvo)) selectTotal.value = salvo;
+            totalParcelas = parseInt(selectTotal.value, 10);
+
+            const base = createNewRecibo(RECIBO_BASE_ID);
+            loadReciboBaseData();
+            performInitialSync(base);
+            attachEventListeners(base);
+            atualizarParcelas();
+        }
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
